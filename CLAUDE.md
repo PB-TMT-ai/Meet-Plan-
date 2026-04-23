@@ -1,4 +1,11 @@
-# WAT Framework — Operating Instructions
+# Meet Plan — Project Instructions
+
+This repository automates the **monthly meet plan** for every SM / TM across North, East, and
+Central zones. Each SM/TM gets ≥ 8 meet options per month (mason / contractor / dealer /
+architect), filtered by stock levels, prior meets, and district tier. See
+`workflows/monthly_meet_plan.md` for the full SOP.
+
+## WAT Framework — Operating Instructions
 
 This repository follows the **WAT** architecture: **Workflows, Agents, Tools**. Probabilistic AI handles reasoning; deterministic code handles execution. That separation is what makes the system reliable.
 
