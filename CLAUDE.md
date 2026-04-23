@@ -2,8 +2,13 @@
 
 This repository automates the **monthly meet plan** for every SM / TM across North, East, and
 Central zones. Each SM/TM gets ≥ 8 meet options per month (mason / contractor / dealer /
-architect), filtered by stock levels, prior meets, and district tier. See
-`workflows/monthly_meet_plan.md` for the full SOP.
+architect), filtered by stock levels, prior meets, and district tier.
+
+- **SOP**: `workflows/monthly_meet_plan.md` — how to run the pipeline.
+- **Durable facts** (roster size, HP threshold, name aliases, file schemas):
+  `memories.md`. Read first so you don't rediscover constraints.
+- **Session learnings** (what broke, what we figured out): `learnings.md`. Append as you
+  discover new quirks.
 
 ## WAT Framework — Operating Instructions
 
@@ -21,26 +26,36 @@ Why: if each step is 90% accurate, five chained steps land at 59%. Offload execu
 
 ## How to Operate
 
-1. **Look for existing tools first.** Check `tools/` before writing anything new. Only create new scripts when nothing fits.
-2. **Learn and adapt when things fail.** Read the full error and trace. Fix the script and retest — if it uses paid APIs or credits, confirm before re-running. Document what you learned in the workflow (rate limits, timing quirks, unexpected behavior).
-3. **Keep workflows current.** Update them as you learn better methods or find new constraints. Don't create or overwrite workflows without asking unless explicitly told to.
+1. **Read `memories.md` first.** Durable facts are there — don't waste a round rediscovering them.
+2. **Look for existing tools first.** Check `tools/` before writing anything new. Only create new scripts when nothing fits.
+3. **Learn and adapt when things fail.** Read the full error and trace. Fix the script and retest — if it uses paid APIs or credits, confirm before re-running. Capture what you learned in `learnings.md` and update the workflow if it changes the recipe.
+4. **Keep workflows current.** Update them as you learn better methods or find new constraints. Don't create or overwrite workflows without asking unless explicitly told to.
 
 ## Self-Improvement Loop
 
-Every failure makes the system stronger: identify what broke → fix the tool → verify the fix → update the workflow → move on.
+Every failure makes the system stronger: identify what broke → fix the tool → verify the fix → record in `learnings.md` → update `memories.md` / the workflow if it's durable → move on.
 
 ## File Structure
 
 ```
-.tmp/         # Temporary / intermediate files. Regenerated as needed. Gitignored.
-tools/        # Python scripts for deterministic execution.
-workflows/    # Markdown SOPs defining what to do and how.
-.env          # API keys and environment variables. NEVER store secrets anywhere else. Gitignored.
-credentials.json, token.json   # Google OAuth. Gitignored.
+CLAUDE.md      # This file. Project instructions + WAT operating rules.
+memories.md    # Durable facts about this project (read first).
+learnings.md   # Session discoveries, data quirks, gotchas.
+workflows/     # Markdown SOPs defining what to do and how.
+tools/         # Python scripts for deterministic execution.
+inputs/        # Monthly user-provided data. Subfolders:
+               #   team_members/ zone_breakup/ stock/
+               #   previous_meets/ high_potential_districts/
+Meet plan/     # Monthly output XLSX files (YYYY-MM.xlsx).
+.tmp/          # Temporary / intermediate files. Regenerated as needed. Gitignored.
+.env           # API keys and environment variables. NEVER store secrets anywhere else. Gitignored.
+credentials.json, token.json   # Google OAuth (unused in v1). Gitignored.
 ```
 
-**Deliverables** go to cloud services (Google Sheets, Slides, etc.) where the user can access them directly. Local files are just for processing — anything in `.tmp/` is disposable.
+Deliverables live in `Meet plan/` as local XLSX for now. When we wire this to Google
+Sheets, outputs will move there — local files stay for processing only.
 
 ## Bottom Line
 
 You sit between intent (workflows) and execution (tools). Read instructions, make smart decisions, call the right tools, recover from errors, keep improving the system.
+
