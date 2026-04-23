@@ -2,9 +2,9 @@
 
 ## Objective
 
-Produce a monthly meet plan for every SM / TM across **North**, **East**, and **Central**
-zones. Each SM/TM must receive **at least 8 meet options** (they will execute 5 of them)
-spread across four meet types with specific constraints.
+Produce a monthly meet plan for every SM/TM/KAM across **North**, **East**, and **Central**
+zones. Each plan should contain **at least 8 meet options** (5 to be executed) across four
+meet types, respecting per-type caps and zone-level monthly targets.
 
 Output: `Meet plan/<YYYY-MM>.xlsx` — one row per SM/TM per meet option.
 
@@ -12,35 +12,28 @@ Output: `Meet plan/<YYYY-MM>.xlsx` — one row per SM/TM per meet option.
 
 | Type | Filter | Cap per SM/TM |
 | --- | --- | --- |
-| **Mason** | Counter's stock > 10 MT AND counter NOT met last month. Prospect counters used as fallback. | No cap (fills remaining slots to reach 8). |
-| **Contractor** | SM/TM's district is high-potential. | 2 |
-| **Dealer** | No district filter — just a slot assigned to the SM/TM. | 1 |
-| **Architect / Engineer** | SM/TM's district is high-potential. | 1 |
+| **Mason** | Counter stock > 10 MT AND counter not had a mason meet last month. Prospect fallback when short. | Fills to ≥ 8. |
+| **Contractor** | SM/TM covers at least one HP district (Very High + High). | 2 |
+| **Dealer** | No district filter. | 1 |
+| **Architect / Engineer** (one bucket) | SM/TM covers at least one HP district. | 1 |
 
-Hard rule: **a given SM/TM gets Dealer OR Architect/Engineer in a month, never both.**
-If the zone-breakup input has both counts > 0 for the same SM/TM,
-`build_meet_plan.py` fails loudly with the offending SM/TM name.
-
-Default split when the zone breakup is silent for an SM/TM:
-`Mason 6 / Contractor 1 / Dealer 1 / Architect 0` — with the 1 shifting to Architect for
-SM/TMs who had Dealer last month (rotate).
+Hard rules:
+- **Dealer XOR Architect** for the same SM/TM in a month — `build_meet_plan.py` raises if violated.
+- Dealer slot rotation: SM/TMs who did NOT do a dealer meet last month are prioritized for this month's dealer slots; those who DID dealer last month are prioritized for architect/engineer.
 
 ## Inputs
 
-Drop the month's files into the matching subfolder under `inputs/`. `load_inputs.py`
-picks the most recently modified file per folder, so old files can stay in place.
+Drop the latest files into the matching subfolders. The loader picks the most recent file per
+folder by mtime and tolerates spaces / case in column names.
 
-| Folder | File | Required columns |
+| Folder | Expected file | Real columns used |
 | --- | --- | --- |
-| `inputs/team_members/` | XLSX or CSV | `sm_tm`, `zone`, `district` |
-| `inputs/zone_breakup/` | XLSX or CSV | `zone`, `sm_tm`, `mason`, `contractor`, `dealer`, `architect` (any missing column defaults to the rule above) |
-| `inputs/stock/` | XLSX or CSV | `counter_id`, `counter_name`, `district`, `sm_tm`, `stock_mt`, `is_prospect` (optional — bool; true flags prospect counter) |
-| `inputs/previous_meets/` | XLSX or CSV | `sm_tm`, `counter_id` (last month's mason meets only) |
-| `inputs/high_potential_districts/` | XLSX or CSV | `district` |
-
-Column-name matching is case-insensitive and tolerates spaces / punctuation; the loader
-normalizes everything to `snake_case`. If a required column is missing, the loader stops
-and prints the missing columns.
+| `inputs/team_members/` | `Headcount.xlsx` (52 SM/TM roster) | `Zone`, `SM/TM`, `SM/TM.1` (name), `State` |
+| `inputs/team_members/` | `Dealer SMTM breakup.xlsx` (counter→SM/TM mapping) | `Dealer SF ID`, `SM / TM` |
+| `inputs/high_potential_districts/` | `District .xlsx` (district master) | `District`, `State`, `Zone`, `Categorization of District`, `SM`, `TM` |
+| `inputs/stock/` | `Stock.xlsx` | `Account Sf ID`, `Name of the Dealer`, `District`, `Zone`, `Distributor Name`, `Retailer Current Stock As Per SF` |
+| `inputs/previous_meets/` | `Previous Month Meet Plan.xlsx` | `Account Sf ID`, `Responsible SM/TM/KAM`, `Meet Type`, `Actual Meet Type`, `Actual Meet Date` |
+| `inputs/zone_breakup/` | `Zone wise break up.xlsx` (long format) | `Zone`, `Meet Type`, `April`, `May`, `June` |
 
 ## Tools (run order)
 
@@ -50,46 +43,56 @@ python tools/eligible_mason_counters.py --print
 python tools/build_meet_plan.py --month YYYY-MM
 ```
 
-- **`load_inputs.py`** — reads + validates every input folder, returns a dict of pandas DataFrames.
-  Use `--print-summary` to sanity-check before building the plan.
-- **`eligible_mason_counters.py`** — per SM/TM, returns counters with stock > 10 MT that were
-  not met last month. Falls back to prospect counters (flagged in `notes`) if fewer than 6.
-- **`build_meet_plan.py`** — orchestrator. Applies the split rules, enforces the
-  dealer-vs-architect mutual exclusion, pushes mason count up when a district is not
-  high-potential, writes `Meet plan/<month>.xlsx`.
+- **`load_inputs.py`** — reads + normalizes every input. Maps real column names to canonical
+  schemas (`sm_tm`, `counter_id`, `stock_mt`, etc). Applies SM/TM name aliasing (`Paritosh` ↔
+  `Paritosh Kaushik`, `Rahul Kumar Gautam` ↔ `Rahul Gautam`, etc) via subset-token matching.
+  Pivots `Zone wise break up` from long to wide. Combines Architect + Engineer meet types.
+- **`normalize_names.py`** — strict subset-token name matcher used by `load_inputs.py`.
+- **`eligible_mason_counters.py`** — per SM/TM, returns mason-eligible counters with a 2-tier
+  prospect fallback:
+    1. Primary: own counters with stock > 10 MT, not met last month.
+    2. Tier 1 fallback: own counters with stock ≤ 10 MT.
+    3. Tier 2 fallback: any counter in the same state (for SM/TMs with no own counters).
+- **`distribute_zone_slots.py`** — distributes zone-level monthly targets across SM/TMs in
+  the zone with rotation (Dealer↔Architect) and caps (Contractor ≤ 2, Dealer/Architect ≤ 1,
+  never both).
+- **`build_meet_plan.py`** — orchestrator. Composes the per-SM/TM plan, drops contractor/
+  architect for non-HP SM/TMs (mason backfills to reach 8), writes
+  `Meet plan/<YYYY-MM>.xlsx`.
+
+## Counter ownership cascade
+
+Each stock counter is attributed to an SM/TM via:
+1. **KAM-Dealer mapping** (`Dealer SMTM breakup.xlsx`) → matched against Headcount roster
+   using subset-token aliases.
+2. **District file's TM column** — when KAM mapping has no roster match.
+3. **District file's SM column** — when district has no TM.
+4. Otherwise: `UNASSIGNED` (still kept in pool, available as state-wide prospect).
 
 ## Outputs
 
-`Meet plan/<YYYY-MM>.xlsx` with one row per meet option:
+`Meet plan/<YYYY-MM>.xlsx` columns:
+`zone, sm_tm, role, state, meet_type, counter_id, counter_name, district, stock_mt, notes`.
 
-| Column | Notes |
-| --- | --- |
-| `zone` | North / East / Central |
-| `sm_tm` | SM/TM name |
-| `district` | SM/TM's district |
-| `meet_type` | mason / contractor / dealer / architect |
-| `counter_id` | Only filled for mason rows |
-| `counter_name` | Only filled for mason rows |
-| `stock_mt` | Only filled for mason rows |
-| `notes` | e.g. "prospect counter — stock fallback" or "non-HP district, extra mason slot" |
+Mason rows have counter details. Contractor / Dealer / Architect rows are slot-only — name
+left blank for the SM/TM to fill in the field. `notes` flags prospect-fallback rows and
+non-HP slot drops.
 
-The SM/TM fills in specific contractor / dealer / architect names locally — the tool
-doesn't pick those.
+## Edge cases / known gaps
 
-## Edge cases / notes
-
-- **Fewer than 6 eligible mason counters** — fill remaining slots with prospect counters
-  from the same district, flagged in `notes`.
-- **SM/TM's district is NOT high-potential** — zero out contractor and architect slots,
-  keep dealer slot if the breakup has one, push mason count up to reach 8.
-- **Zone-breakup row missing for an SM/TM** — apply the default split, warn on stderr.
-- **Dealer + Architect both > 0 for the same SM/TM** — hard fail with the SM/TM name.
-- **No files in an `inputs/<folder>/`** — `load_inputs.py` fails loudly naming the empty folder.
+- **State has no stock data** → SM/TMs in that state get 0 mason rows and appear in the
+  `MISSING from the plan` warning. As of 2026-04, this affects Himachal Pradesh and
+  Chhattisgarh (and Maharashtra has only 1 counter). To fix: add stock rows for those states.
+- **HP-district SM/TM pool exhausted by dealer assignment** → architect target may underrun.
+  Emitted in stderr alloc audit.
+- **Names mismatched between Headcount and KAM-Dealer mapping** → `_unmapped_kam_names`
+  audit lists names treated as KAMs (counters owned by them fall back to district lookup).
 
 ## Verification
 
-1. Every SM/TM has at least 8 rows.
-2. No SM/TM has more than 2 contractor rows.
-3. No SM/TM has both a dealer and an architect row.
-4. No mason `counter_id` appears in this month's plan and in last month's meet log.
-5. Prospect-counter fallback rows carry a `notes` flag.
+1. Every SM/TM has at least 8 rows (warnings list any shortfalls).
+2. No SM/TM has both a dealer and an architect row.
+3. No SM/TM has more than 2 contractor rows.
+4. No mason `counter_id` appears in this month's plan AND in last month's mason meets.
+5. Prospect-fallback rows carry a `notes` flag.
+6. `MISSING from the plan` SM/TMs need manual review (state-level stock gap).
