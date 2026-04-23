@@ -1,0 +1,25 @@
+# Secrets
+.env
+credentials.json
+token.json
+*.pem
+*.key
+
+# Temporary / intermediate data
+.tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
